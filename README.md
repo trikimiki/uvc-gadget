@@ -8,7 +8,7 @@
 >
 > Changes are tested with RPi Zero 2 W, Camera Module 3 (IMX708, basic module with no IR or wide lense), Pi OS Bookworm, and libcamera v0.5.2+99-bfd68f78.
 >
-> You can find [full guide here](https://www.raspberrypi.com/tutorials/plug-and-play-raspberry-pi-usb-webcam/), with specific [systemd fixes required for Bookworm here](https://telegra.ph/Pi-Camera-Webcam-Thing-Something-Something-Fix-01-02) (thank you [f4mi](https://www.youtube.com/@f4micom) for [inspiration](https://youtu.be/K1T1eMyPIC4) and fixes!).
+> You can find [full guide here](https://www.raspberrypi.com/tutorials/plug-and-play-raspberry-pi-usb-webcam/), with specific [systemd fixes required for Bookworm here](https://telegra.ph/Pi-Camera-Webcam-Thing-Something-Something-Fix-01-02) (thank you [f4mi](https://www.youtube.com/@f4micom) for [inspiration](https://youtu.be/K1T1eMyPIC4) and fixes!). The updated systemd script of mine could be found [here](scripts/rpi-uvc-gadget.sh).
 
 # uvcgadget - UVC gadget C library
 
