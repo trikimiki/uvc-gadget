@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include "config.h"
 #include "configfs.h"
@@ -26,14 +27,15 @@ static void usage(const char *argv0)
 	fprintf(stderr, "Usage: %s [options] <uvc device>\n", argv0);
 	fprintf(stderr, "Available options are\n");
 #ifdef HAVE_LIBCAMERA
-	fprintf(stderr, " -c <index|id> libcamera camera name\n");
+	fprintf(stderr, " -c|--camera <index|id>        libcamera camera name\n");
+	fprintf(stderr, "    --awb <mode>               [libcamera] debug option\n");
 #endif
-	fprintf(stderr, " -d device	V4L2 source device\n");
-	fprintf(stderr, " -i image	MJPEG image\n");
-	fprintf(stderr, " -s directory	directory of slideshow images\n");
-	fprintf(stderr, " -h		Print this help screen and exit\n");
+	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
+	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
+	fprintf(stderr, " -s|--slideshow <directory>    directory of slideshow images\n");
+	fprintf(stderr, " -h|--help                     Print this help screen and exit\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " <uvc device>	UVC device instance specifier\n");
+	fprintf(stderr, " <uvc device>                  UVC device instance specifier\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "  For ConfigFS devices the <uvc device> parameter can take the form of a shortened\n");
@@ -67,6 +69,7 @@ int main(int argc, char *argv[])
 	char *function = NULL;
 #ifdef HAVE_LIBCAMERA
 	char *camera = NULL;
+	char *awb_mode = NULL;
 #endif
 	char *cap_device = NULL;
 	char *img_path = NULL;
@@ -78,12 +81,30 @@ int main(int argc, char *argv[])
 	struct events events;
 	int ret = 0;
 	int opt;
+	int option_index = 0;
 
-	while ((opt = getopt(argc, argv, "c:d:i:s:k:h")) != -1) {
+	#define OPT_AWB 1000
+	struct option long_options[] = {
+#ifdef HAVE_LIBCAMERA
+		{"camera", required_argument, 0, 'c' },
+		{"awb", required_argument, 0, OPT_AWB},
+#endif
+		{"device", required_argument, 0, 'd' },
+		{"image", required_argument, 0, 'i' },
+		{"slideshow", required_argument, 0, 's' },
+		{"help", no_argument, 0, 'h' },
+		{0, 0, 0, 0}
+	};
+
+	while ((opt = getopt_long(argc, argv, "c:d:i:s:h", long_options, &option_index)) != -1) {
 		switch (opt) {
 #ifdef HAVE_LIBCAMERA
 		case 'c':
 			camera = optarg;
+			break;
+		case OPT_AWB:
+			awb_mode = optarg;
+			printf("--awb argument was passed with value %s\n", awb_mode);
 			break;
 #endif
 		case 'd':
