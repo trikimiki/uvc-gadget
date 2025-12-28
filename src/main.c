@@ -124,7 +124,6 @@ int main(int argc, char *argv[])
 			return 0;
 
 		default:
-			fprintf(stderr, "Invalid option '-%c'\n", opt);
 			usage(argv[0]);
 			return 1;
 		}
