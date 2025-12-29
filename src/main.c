@@ -9,6 +9,7 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <getopt.h>
 
@@ -22,13 +23,54 @@
 #include "jpg-source.h"
 #include "slideshow-source.h"
 
+#ifdef HAVE_LIBCAMERA
+/* Container for libcamera control options */
+struct camera_controls {
+	char *awb_mode;
+	char *af_mode;
+};
+/* Validation of given option against a list of allowed camera modes */
+static int is_camera_mode_valid(const char *mode, const char *valid_modes[])
+{
+	for (int i = 0; valid_modes[i] != NULL; i++) {
+		if (strcmp(mode, valid_modes[i]) == 0)
+			return 1;
+    }
+	return 0;
+}
+static const char *camera_valid_awb_modes[] = {
+	"auto",
+	"incandescent",
+	"tungsten",
+	"fluorescent",
+	"indoor",
+	"daylight",
+	"cloudy",
+	NULL
+};
+static const char *camera_valid_af_modes[] = {
+	"manual",
+	"auto",
+	"continuous",
+	NULL
+};
+#endif
+
 static void usage(const char *argv0)
 {
 	fprintf(stderr, "Usage: %s [options] <uvc device>\n", argv0);
 	fprintf(stderr, "Available options are\n");
 #ifdef HAVE_LIBCAMERA
 	fprintf(stderr, " -c|--camera <index|id>        libcamera camera name\n");
-	fprintf(stderr, "    --awb <mode>               [libcamera] debug option\n");
+	fprintf(stderr, "    --awb <mode>               [libcamera] Auto White Balance algorithm mode\n");
+	fprintf(stderr, "                                  values: ");
+	for (int i = 0; camera_valid_awb_modes[i] != NULL; i++)
+		fprintf(stderr, "%s%s", camera_valid_awb_modes[i], camera_valid_awb_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --autofocus-mode <mode>    [libcamera] Autofocus algorithm mode\n");
+	fprintf(stderr, "                                  values: ");
+	for (int i = 0; camera_valid_af_modes[i] != NULL; i++)
+		fprintf(stderr, "%s%s", camera_valid_af_modes[i], camera_valid_af_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "                                  (in manual mode focus is set via \"--lens-position\")\n");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -69,7 +111,10 @@ int main(int argc, char *argv[])
 	char *function = NULL;
 #ifdef HAVE_LIBCAMERA
 	char *camera = NULL;
-	char *awb_mode = NULL;
+	struct camera_controls camera_control_opts = {
+		.awb_mode = NULL,
+		.af_mode = NULL,
+	};
 #endif
 	char *cap_device = NULL;
 	char *img_path = NULL;
@@ -84,10 +129,12 @@ int main(int argc, char *argv[])
 	int option_index = 0;
 
 	#define OPT_AWB 1000
+	#define OPT_AF_MODE 1001
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
 		{"camera", required_argument, 0, 'c' },
 		{"awb", required_argument, 0, OPT_AWB},
+		{"autofocus-mode", required_argument, 0, OPT_AF_MODE},
 #endif
 		{"device", required_argument, 0, 'd' },
 		{"image", required_argument, 0, 'i' },
@@ -103,8 +150,22 @@ int main(int argc, char *argv[])
 			camera = optarg;
 			break;
 		case OPT_AWB:
-			awb_mode = optarg;
-			printf("--awb argument was passed with value %s\n", awb_mode);
+			if (!is_camera_mode_valid(optarg, camera_valid_awb_modes)) {
+				fprintf(stderr, "Invalid --awb value: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.awb_mode = optarg;
+			printf("debug: --awb argument was passed with value %s\n", camera_control_opts.awb_mode);
+			break;
+		case OPT_AF_MODE:
+			if (!is_camera_mode_valid(optarg, camera_valid_af_modes)) {
+				fprintf(stderr, "Invalid --autofocus-mode value: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.af_mode = optarg;
+			printf("debug: --autofocus-mode argument was passed with value %s\n", camera_control_opts.af_mode);
 			break;
 #endif
 		case 'd':
