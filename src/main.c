@@ -33,6 +33,16 @@ static int is_camera_mode_valid(const char *mode, const char *valid_modes[])
 	}
 	return 0;
 }
+static const char *camera_valid_af_range_modes[] = {
+	"normal",
+	"macro",
+	NULL
+};
+static const char *camera_valid_af_speed_modes[] = {
+	"normal",
+	"fast",
+	NULL
+};
 static const char *camera_valid_awb_modes[] = {
 	"auto",
 	"incandescent",
@@ -43,6 +53,13 @@ static const char *camera_valid_awb_modes[] = {
 	"cloudy",
 	NULL
 };
+static const char *camera_valid_exposure_modes[] = {
+	"normal",
+	"short",
+	"sport", // rpicam-apps implementation of "short"
+	"long",
+	NULL
+};
 #endif
 
 static void usage(const char *argv0)
@@ -51,10 +68,23 @@ static void usage(const char *argv0)
 	fprintf(stderr, "Available options are\n");
 #ifdef HAVE_LIBCAMERA
 	fprintf(stderr, " -c|--camera <index|id>        libcamera camera name\n");
-	fprintf(stderr, "    --awb <mode>               [libcamera] Auto White Balance algorithm mode\n");
+	fprintf(stderr, "    --autofocus-range <mode>   [libcamera] distances range of Autofocus (AF) scan\n");
+	fprintf(stderr, "                                  values: ");
+	for (int i = 0; camera_valid_af_range_modes[i] != NULL; i++)
+		fprintf(stderr, "%s%s", camera_valid_af_range_modes[i], camera_valid_af_range_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --autofocus-speed <mode>   [libcamera] AF lens speed when changing focus\n");
+	fprintf(stderr, "                                  values: ");
+	for (int i = 0; camera_valid_af_speed_modes[i] != NULL; i++)
+		fprintf(stderr, "%s%s", camera_valid_af_speed_modes[i], camera_valid_af_speed_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --awb <mode>               [libcamera] Auto White Balance (AWB) algorithm mode\n");
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_awb_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_awb_modes[i], camera_valid_awb_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --exposure <mode>          [libcamera] AEGC algorithm exposure mode\n");
+	fprintf(stderr, "                                  values: ");
+	for (int i = 0; camera_valid_exposure_modes[i] != NULL; i++)
+		fprintf(stderr, "%s%s", camera_valid_exposure_modes[i], camera_valid_exposure_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "                                  (\"sport\" equals \"short\")");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -96,7 +126,10 @@ int main(int argc, char *argv[])
 #ifdef HAVE_LIBCAMERA
 	char *camera = NULL;
 	struct camera_controls camera_control_opts = {
+		.af_range_mode = NULL,
+		.af_speed_mode = NULL,
 		.awb_mode = NULL,
+		.exposure_mode = NULL,
 	};
 #endif
 	char *cap_device = NULL;
@@ -111,16 +144,22 @@ int main(int argc, char *argv[])
 	int opt;
 	int option_index = 0;
 
-	#define OPT_AWB 1000
+	#define OPT_AF_RANGE 1000
+	#define OPT_AF_SPEED 1001
+	#define OPT_AWB_MODE 1002
+	#define OPT_EXP_MODE 1003
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
-		{ "camera",         required_argument, 0, 'c' },
-		{ "awb",            required_argument, 0, OPT_AWB },
+		{ "camera",          required_argument, 0, 'c' },
+		{ "autofocus-range", required_argument, 0, OPT_AF_RANGE },
+		{ "autofocus-speed", required_argument, 0, OPT_AF_SPEED },
+		{ "awb",             required_argument, 0, OPT_AWB_MODE },
+		{ "exposure",        required_argument, 0, OPT_EXP_MODE },
 #endif
-		{ "device",         required_argument, 0, 'd' },
-		{ "image",          required_argument, 0, 'i' },
-		{ "slideshow",      required_argument, 0, 's' },
-		{ "help",           no_argument,       0, 'h' },
+		{ "device",          required_argument, 0, 'd' },
+		{ "image",           required_argument, 0, 'i' },
+		{ "slideshow",       required_argument, 0, 's' },
+		{ "help",            no_argument,       0, 'h' },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -130,13 +169,37 @@ int main(int argc, char *argv[])
 		case 'c':
 			camera = optarg;
 			break;
-		case OPT_AWB:
+		case OPT_AF_RANGE:
+			if (!is_camera_mode_valid(optarg, camera_valid_af_range_modes)) {
+				fprintf(stderr, "Invalid --autofocus-range value: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.af_range_mode = optarg;
+			break;
+		case OPT_AF_SPEED:
+			if (!is_camera_mode_valid(optarg, camera_valid_af_speed_modes)) {
+				fprintf(stderr, "Invalid --autofocus-speed value: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.af_speed_mode = optarg;
+			break;
+		case OPT_AWB_MODE:
 			if (!is_camera_mode_valid(optarg, camera_valid_awb_modes)) {
 				fprintf(stderr, "Invalid --awb value: %s\n", optarg);
 				usage(argv[0]);
 				return 1;
 			}
 			camera_control_opts.awb_mode = optarg;
+			break;
+		case OPT_EXP_MODE:
+			if (!is_camera_mode_valid(optarg, camera_valid_exposure_modes)) {
+				fprintf(stderr, "Invalid --exposure value: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.exposure_mode = optarg;
 			break;
 #endif
 		case 'd':

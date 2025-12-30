@@ -597,6 +597,14 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 	const ControlInfoMap &infoMap = src->camera->controls();
 
 	/* Mapping from CLI string values to libcamera enum values */
+	static const struct { const char *string_value; int enum_value; } af_range_mode_conversion_map[] = {
+		{ "normal",        controls::AfRangeNormal },
+		{ "macro",         controls::AfRangeMacro },
+	};
+	static const struct { const char *string_value; int enum_value; } af_speed_mode_conversion_map[] = {
+		{ "normal",        controls::AfSpeedNormal },
+		{ "fast",          controls::AfSpeedFast },
+	};
 	static const struct { const char *string_value; int enum_value; } awb_mode_conversion_map[] = {
 		{ "auto",          controls::AwbAuto },
 		{ "incandescent",  controls::AwbIncandescent },
@@ -605,6 +613,12 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		{ "indoor",        controls::AwbIndoor },
 		{ "daylight",      controls::AwbDaylight },
 		{ "cloudy",        controls::AwbCloudy },
+	};
+	static const struct { const char *string_value; int enum_value; } exposure_mode_conversion_map[] = {
+		{ "normal",        controls::ExposureNormal },
+		{ "short",         controls::ExposureShort },
+		{ "sport",         controls::ExposureShort },
+		{ "long",          controls::ExposureLong },
 	};
 
 	auto lookup_control_value = [](const char *lookup_string, const auto &conversion_map) -> int {
@@ -641,7 +655,10 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		std::cout << "  AF algorithm mode: \"continuous\" (forced)" << std::endl;
 	}
 
+	apply_control_value("AF range mode", controls::AfRange, input_controls->af_range_mode, af_range_mode_conversion_map);
+	apply_control_value("AF lens speed mode", controls::AfSpeed, input_controls->af_speed_mode, af_speed_mode_conversion_map);
 	apply_control_value("AWB algorithm mode", controls::AwbMode, input_controls->awb_mode, awb_mode_conversion_map);
+	apply_control_value("AEGC algorithm exposure mode", controls::AeExposureMode, input_controls->exposure_mode, exposure_mode_conversion_map);
 }
 
 void libcamera_source_init(struct video_source *s, struct events *events)

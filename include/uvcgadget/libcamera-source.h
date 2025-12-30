@@ -16,7 +16,10 @@ struct events;
 struct video_source;
 /* Container for libcamera control options */
 struct camera_controls {
+	char *af_range_mode;
+	char *af_speed_mode;
 	char *awb_mode;
+	char *exposure_mode;
 };
 
 #ifdef __cplusplus
