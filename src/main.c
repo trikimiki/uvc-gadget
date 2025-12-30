@@ -43,11 +43,6 @@ static const char *camera_valid_awb_modes[] = {
 	"cloudy",
 	NULL
 };
-static const char *camera_valid_af_modes[] = {
-	"auto",
-	"continuous",
-	NULL
-};
 #endif
 
 static void usage(const char *argv0)
@@ -60,10 +55,6 @@ static void usage(const char *argv0)
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_awb_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_awb_modes[i], camera_valid_awb_modes[i+1] ? ", " : "\n");
-	fprintf(stderr, "    --autofocus-mode <mode>    [libcamera] Autofocus algorithm mode\n");
-	fprintf(stderr, "                                  values: ");
-	for (int i = 0; camera_valid_af_modes[i] != NULL; i++)
-		fprintf(stderr, "%s%s", camera_valid_af_modes[i], camera_valid_af_modes[i+1] ? ", " : "\n");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -106,7 +97,6 @@ int main(int argc, char *argv[])
 	char *camera = NULL;
 	struct camera_controls camera_control_opts = {
 		.awb_mode = NULL,
-		.af_mode = NULL,
 	};
 #endif
 	char *cap_device = NULL;
@@ -122,12 +112,10 @@ int main(int argc, char *argv[])
 	int option_index = 0;
 
 	#define OPT_AWB 1000
-	#define OPT_AF_MODE 1001
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
 		{ "camera",         required_argument, 0, 'c' },
 		{ "awb",            required_argument, 0, OPT_AWB },
-		{ "autofocus-mode", required_argument, 0, OPT_AF_MODE },
 #endif
 		{ "device",         required_argument, 0, 'd' },
 		{ "image",          required_argument, 0, 'i' },
@@ -149,14 +137,6 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			camera_control_opts.awb_mode = optarg;
-			break;
-		case OPT_AF_MODE:
-			if (!is_camera_mode_valid(optarg, camera_valid_af_modes)) {
-				fprintf(stderr, "Invalid --autofocus-mode value: %s\n", optarg);
-				usage(argv[0]);
-				return 1;
-			}
-			camera_control_opts.af_mode = optarg;
 			break;
 #endif
 		case 'd':

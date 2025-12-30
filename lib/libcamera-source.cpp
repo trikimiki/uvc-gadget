@@ -606,10 +606,6 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		{ "daylight",      controls::AwbDaylight },
 		{ "cloudy",        controls::AwbCloudy },
 	};
-	static const struct { const char *string_value; int enum_value; } af_mode_conversion_map[] = {
-		{ "auto",          controls::AfModeAuto },
-		{ "continuous",    controls::AfModeContinuous },
-	};
 
 	auto lookup_control_value = [](const char *lookup_string, const auto &conversion_map) -> int {
 		for (const auto &entry : conversion_map) {
@@ -637,8 +633,15 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		std::cout << "  " << control_label << ": \"" << input_value << "\"" << std::endl;
 	};
 
+	/* "Hardcode" continuous AF */
+	if (!infoMap.count(controls::AfMode.id())) {
+		std::cerr << "  Cannot set AF algorithm mode: not supported by camera - fallback to defaults" << std::endl;
+	} else {
+		src->controls.set(controls::AfMode, controls::AfModeContinuous);
+		std::cout << "  AF algorithm mode: \"continuous\" (forced)" << std::endl;
+	}
+
 	apply_control_value("AWB algorithm mode", controls::AwbMode, input_controls->awb_mode, awb_mode_conversion_map);
-	apply_control_value("AF algorithm mode", controls::AfMode, input_controls->af_mode, af_mode_conversion_map);
 }
 
 void libcamera_source_init(struct video_source *s, struct events *events)

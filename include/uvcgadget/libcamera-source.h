@@ -17,7 +17,6 @@ struct video_source;
 /* Container for libcamera control options */
 struct camera_controls {
 	char *awb_mode;
-	char *af_mode;
 };
 
 #ifdef __cplusplus
