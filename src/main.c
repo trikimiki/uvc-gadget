@@ -24,18 +24,13 @@
 #include "slideshow-source.h"
 
 #ifdef HAVE_LIBCAMERA
-/* Container for libcamera control options */
-struct camera_controls {
-	char *awb_mode;
-	char *af_mode;
-};
 /* Validation of given option against a list of allowed camera modes */
 static int is_camera_mode_valid(const char *mode, const char *valid_modes[])
 {
 	for (int i = 0; valid_modes[i] != NULL; i++) {
 		if (strcmp(mode, valid_modes[i]) == 0)
 			return 1;
-    }
+	}
 	return 0;
 }
 static const char *camera_valid_awb_modes[] = {
@@ -49,7 +44,6 @@ static const char *camera_valid_awb_modes[] = {
 	NULL
 };
 static const char *camera_valid_af_modes[] = {
-	"manual",
 	"auto",
 	"continuous",
 	NULL
@@ -70,7 +64,6 @@ static void usage(const char *argv0)
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_af_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_af_modes[i], camera_valid_af_modes[i+1] ? ", " : "\n");
-	fprintf(stderr, "                                  (in manual mode focus is set via \"--lens-position\")\n");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -132,15 +125,15 @@ int main(int argc, char *argv[])
 	#define OPT_AF_MODE 1001
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
-		{"camera", required_argument, 0, 'c' },
-		{"awb", required_argument, 0, OPT_AWB},
-		{"autofocus-mode", required_argument, 0, OPT_AF_MODE},
+		{ "camera",         required_argument, 0, 'c' },
+		{ "awb",            required_argument, 0, OPT_AWB },
+		{ "autofocus-mode", required_argument, 0, OPT_AF_MODE },
 #endif
-		{"device", required_argument, 0, 'd' },
-		{"image", required_argument, 0, 'i' },
-		{"slideshow", required_argument, 0, 's' },
-		{"help", no_argument, 0, 'h' },
-		{0, 0, 0, 0}
+		{ "device",         required_argument, 0, 'd' },
+		{ "image",          required_argument, 0, 'i' },
+		{ "slideshow",      required_argument, 0, 's' },
+		{ "help",           no_argument,       0, 'h' },
+		{ 0, 0, 0, 0 }
 	};
 
 	while ((opt = getopt_long(argc, argv, "c:d:i:s:h", long_options, &option_index)) != -1) {
@@ -156,7 +149,6 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			camera_control_opts.awb_mode = optarg;
-			printf("debug: --awb argument was passed with value %s\n", camera_control_opts.awb_mode);
 			break;
 		case OPT_AF_MODE:
 			if (!is_camera_mode_valid(optarg, camera_valid_af_modes)) {
@@ -165,7 +157,6 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			camera_control_opts.af_mode = optarg;
-			printf("debug: --autofocus-mode argument was passed with value %s\n", camera_control_opts.af_mode);
 			break;
 #endif
 		case 'd':
@@ -219,8 +210,10 @@ int main(int argc, char *argv[])
 	if (cap_device)
 		src = v4l2_video_source_create(cap_device);
 #ifdef HAVE_LIBCAMERA
-	else if (camera)
+	else if (camera) {
 		src = libcamera_source_create(camera);
+		libcamera_source_set_controls(src, &camera_control_opts);
+	}
 #endif
 	else if (img_path)
 		src = jpg_video_source_create(img_path);

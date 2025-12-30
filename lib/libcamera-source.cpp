@@ -567,19 +567,6 @@ struct video_source *libcamera_source_create(const char *devname)
 
 	src->camera->requestCompleted.connect(src, &libcamera_source::requestComplete);
 
-	{
-		/*
-		 * We enable AutoFocus by default if it's supported by the camera.
-		 * Keep the infoMap scoped to calm the compiler worrying about
-		 * jumping over the reference with the gotos.
-		 */
-		const ControlInfoMap &infoMap = src->camera->controls();
-		if (infoMap.find(&controls::AfMode) != infoMap.end()) {
-			std::cout << "Enabling continuous auto-focus" << std::endl;
-			src->controls.set(controls::AfMode, controls::AfModeContinuous);
-		}
-	}
-
 	return &src->src;
 
 err_release_camera:
@@ -592,6 +579,66 @@ err_free_src:
 	delete src;
 
 	return NULL;
+}
+
+void libcamera_source_set_controls(struct video_source *s, struct camera_controls *input_controls)
+{
+	if (!s || !input_controls)
+		return;
+
+	struct libcamera_source *src = to_libcamera_source(s);
+	if (!src || !src->camera) {
+		std::cerr << "Error when setting camera controls: source or camera missing" << std::endl;
+		return;
+	}
+
+	std::cout << "Setting camera controls parameters:" << std::endl;
+
+	const ControlInfoMap &infoMap = src->camera->controls();
+
+	/* Mapping from CLI string values to libcamera enum values */
+	static const struct { const char *string_value; int enum_value; } awb_mode_conversion_map[] = {
+		{ "auto",          controls::AwbAuto },
+		{ "incandescent",  controls::AwbIncandescent },
+		{ "tungsten",      controls::AwbTungsten },
+		{ "fluorescent",   controls::AwbFluorescent },
+		{ "indoor",        controls::AwbIndoor },
+		{ "daylight",      controls::AwbDaylight },
+		{ "cloudy",        controls::AwbCloudy },
+	};
+	static const struct { const char *string_value; int enum_value; } af_mode_conversion_map[] = {
+		{ "auto",          controls::AfModeAuto },
+		{ "continuous",    controls::AfModeContinuous },
+	};
+
+	auto lookup_control_value = [](const char *lookup_string, const auto &conversion_map) -> int {
+		for (const auto &entry : conversion_map) {
+			if (strcmp(entry.string_value, lookup_string) == 0)
+				return entry.enum_value;
+		}
+		return -1; // not found
+	};
+
+	auto apply_control_value = [&](const char *control_label, const auto &control_name, const char *input_value, const auto &conversion_map) {
+		if (!input_value) {
+			std::cout << "  " << control_label << ": default" << std::endl;
+			return;
+		}
+		if (!infoMap.count(control_name.id())) {
+			std::cerr << "  Cannot set " << control_label << ": not supported by camera - fallback to defaults" << std::endl;
+			return;
+		}
+		int control_value = lookup_control_value(input_value, conversion_map);
+		if (control_value == -1) {
+			std::cerr << "  Cannot set " << control_label << ": unknown value \"" << input_value << "\" - fallback to defaults" << std::endl;
+			return;
+		}
+		src->controls.set(control_name, control_value);
+		std::cout << "  " << control_label << ": \"" << input_value << "\"" << std::endl;
+	};
+
+	apply_control_value("AWB algorithm mode", controls::AwbMode, input_controls->awb_mode, awb_mode_conversion_map);
+	apply_control_value("AF algorithm mode", controls::AfMode, input_controls->af_mode, af_mode_conversion_map);
 }
 
 void libcamera_source_init(struct video_source *s, struct events *events)
