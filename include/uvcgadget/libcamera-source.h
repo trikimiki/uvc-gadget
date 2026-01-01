@@ -20,6 +20,17 @@ struct camera_controls {
 	char *af_speed_mode;
 	char *awb_mode;
 	char *exposure_mode;
+
+	// colour-gains | awbgains
+	float colour_gain_r;
+	float colour_gain_b;
+
+	float lens_position;
+
+	float brightness;
+	float contrast;
+	float saturation;
+	float sharpness;
 };
 
 #ifdef __cplusplus

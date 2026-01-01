@@ -596,7 +596,11 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 
 	const ControlInfoMap &infoMap = src->camera->controls();
 
-	/* Mapping from CLI string values to libcamera enum values */
+// NOTE
+// IPA control modes are hardcoded here
+// theoretically, they should never get modified - still, the best practice is to populate those dynamically
+
+	/* CLI string values --> libcamera enum values */
 	static const struct { const char *string_value; int enum_value; } af_range_mode_conversion_map[] = {
 		{ "normal",        controls::AfRangeNormal },
 		{ "macro",         controls::AfRangeMacro },
@@ -621,7 +625,7 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		{ "long",          controls::ExposureLong },
 	};
 
-	auto lookup_control_value = [](const char *lookup_string, const auto &conversion_map) -> int {
+	auto lookup_control_mode_from_string = [](const char *lookup_string, const auto &conversion_map) -> int {
 		for (const auto &entry : conversion_map) {
 			if (strcmp(entry.string_value, lookup_string) == 0)
 				return entry.enum_value;
@@ -629,36 +633,119 @@ void libcamera_source_set_controls(struct video_source *s, struct camera_control
 		return -1; // not found
 	};
 
-	auto apply_control_value = [&](const char *control_label, const auto &control_name, const char *input_value, const auto &conversion_map) {
-		if (!input_value) {
-			std::cout << "  " << control_label << ": default" << std::endl;
+	auto apply_control_mode_from_string = [&](const char *control_label, const auto &control_name, const char *input_value, const auto &conversion_map) {
+		if (!input_value)
 			return;
-		}
 		if (!infoMap.count(control_name.id())) {
-			std::cerr << "  Cannot set " << control_label << ": not supported by camera - fallback to defaults" << std::endl;
+			std::cerr << "  Cannot set " << control_label << ": not supported by camera - fallback to camera defaults" << std::endl;
 			return;
 		}
-		int control_value = lookup_control_value(input_value, conversion_map);
+		int control_value = lookup_control_mode_from_string(input_value, conversion_map);
 		if (control_value == -1) {
-			std::cerr << "  Cannot set " << control_label << ": unknown value \"" << input_value << "\" - fallback to defaults" << std::endl;
+			std::cerr << "  Cannot set " << control_label << ": unknown value \"" << input_value << "\" - fallback to camera defaults" << std::endl;
 			return;
 		}
 		src->controls.set(control_name, control_value);
 		std::cout << "  " << control_label << ": \"" << input_value << "\"" << std::endl;
 	};
 
-	/* "Hardcode" continuous AF */
+	auto is_numeric_control_provided = [](float value){
+		// 0.0f / 0.0f is default numeric control value in "main.c" and it is NaN
+		// (NaN == NaN) is false
+		// (X.Xf == X.Xf) is true
+		return value == value;
+	};
+
+	/* AF and lens position handling */
+	bool is_focus_manual=false;
 	if (!infoMap.count(controls::AfMode.id())) {
-		std::cerr << "  Cannot set AF algorithm mode: not supported by camera - fallback to defaults" << std::endl;
+		// If no AfMode control available - cannot set AfModeContinuous (and AF range/speed), nor AfModeManual (lens position)
+		std::cerr << "  Cannot set focus controls: not supported by camera - fallback to camera defaults" << std::endl;
 	} else {
-		src->controls.set(controls::AfMode, controls::AfModeContinuous);
-		std::cout << "  AF algorithm mode: \"continuous\" (forced)" << std::endl;
+		if (is_numeric_control_provided(input_controls->lens_position)) {
+			if (infoMap.count(controls::LensPosition.id())) {
+				is_focus_manual = true;
+				src->controls.set(controls::AfMode, controls::AfModeManual);
+				std::cout << "  AF algorithm: disabled - will set manual lens focus position" << std::endl;
+				if (input_controls->af_range_mode) {
+					std::cout << "    (AF range mode parameter ignored)" << std::endl;
+				}
+				if (input_controls->af_speed_mode) {
+					std::cout << "    (AF lens speed mode parameter ignored)" << std::endl;
+				}
+				src->controls.set(controls::LensPosition, input_controls->lens_position);
+				std::cout << "  Lens focus position: \"" << input_controls->lens_position << "\"" << std::endl;
+			} else {
+				std::cout << "  Cannot set lens focus position: not supported by camera - trying fallback to continuous AF" << std::endl;
+			}
+		}
+		if (!is_focus_manual) {
+			src->controls.set(controls::AfMode, controls::AfModeContinuous);
+			std::cout << "  AF algorithm mode: \"continuous\" (UVC default)" << std::endl;
+			apply_control_mode_from_string("AF range mode", controls::AfRange, input_controls->af_range_mode, af_range_mode_conversion_map);
+			apply_control_mode_from_string("AF lens speed mode", controls::AfSpeed, input_controls->af_speed_mode, af_speed_mode_conversion_map);
+		}
 	}
 
-	apply_control_value("AF range mode", controls::AfRange, input_controls->af_range_mode, af_range_mode_conversion_map);
-	apply_control_value("AF lens speed mode", controls::AfSpeed, input_controls->af_speed_mode, af_speed_mode_conversion_map);
-	apply_control_value("AWB algorithm mode", controls::AwbMode, input_controls->awb_mode, awb_mode_conversion_map);
-	apply_control_value("AEGC algorithm exposure mode", controls::AeExposureMode, input_controls->exposure_mode, exposure_mode_conversion_map);
+	/* AWB and manual colour gains handling */
+	bool is_wb_manual=false;
+	if (is_numeric_control_provided(input_controls->colour_gain_r) && is_numeric_control_provided(input_controls->colour_gain_b)) {
+		if (!infoMap.count(controls::ColourGains.id())) {
+			std::cerr << "  Cannot set colour gains: not supported by camera - fallback to camera defaults" << std::endl;
+		} else {
+			is_wb_manual = true;
+			if (infoMap.count(controls::AwbEnable.id())) {
+				src->controls.set(controls::AwbEnable, false);
+				std::cout << "  AWB algorithm: disabled - will set manual colour gains" << std::endl;
+			} else {
+				std::cout << "  Cannot disable AWB algorithm - will attempt to set manual colour gains anyway" << std::endl;
+			}
+			if (input_controls->awb_mode)
+				std::cout << "    (AWB mode parameter ignored)" << std::endl;
+			src->controls.set(controls::ColourGains, { input_controls->colour_gain_r, input_controls->colour_gain_b });
+			std::cout << "  Colour gains: r=\"" << input_controls->colour_gain_r << "\", b=\"" << input_controls->colour_gain_b << "\"" << std::endl;
+		}
+	}
+	if (!is_wb_manual)
+		apply_control_mode_from_string("AWB algorithm mode", controls::AwbMode, input_controls->awb_mode, awb_mode_conversion_map);
+
+	apply_control_mode_from_string("AEGC algorithm exposure mode", controls::AeExposureMode, input_controls->exposure_mode, exposure_mode_conversion_map);
+
+	if (is_numeric_control_provided(input_controls->brightness)) {
+		if (!infoMap.count(controls::Brightness.id())) {
+			std::cerr << "  Cannot set brightness: not supported by camera - fallback to camera defaults" << std::endl;
+		} else {
+			src->controls.set(controls::Brightness, input_controls->brightness);
+			std::cout << "  Brightness: \"" << input_controls->brightness << "\"" << std::endl;
+		}
+	}
+
+	if (is_numeric_control_provided(input_controls->contrast)) {
+		if (!infoMap.count(controls::Contrast.id())) {
+			std::cerr << "  Cannot set contrast: not supported by camera - fallback to camera defaults" << std::endl;
+		} else {
+			src->controls.set(controls::Contrast, input_controls->contrast);
+			std::cout << "  Contrast: \"" << input_controls->contrast << "\"" << std::endl;
+		}
+	}
+
+	if (is_numeric_control_provided(input_controls->saturation)) {
+		if (!infoMap.count(controls::Saturation.id())) {
+			std::cerr << "  Cannot set saturation: not supported by camera - fallback to camera defaults" << std::endl;
+		} else {
+			src->controls.set(controls::Saturation, input_controls->saturation);
+			std::cout << "  Saturation: \"" << input_controls->saturation << "\"" << std::endl;
+		}
+	}
+
+	if (is_numeric_control_provided(input_controls->sharpness)) {
+		if (!infoMap.count(controls::Sharpness.id())) {
+			std::cerr << "  Cannot set sharpness: not supported by camera - fallback to camera defaults" << std::endl;
+		} else {
+			src->controls.set(controls::Sharpness, input_controls->sharpness);
+			std::cout << "  Sharpness: \"" << input_controls->sharpness << "\"" << std::endl;
+		}
+	}
 }
 
 void libcamera_source_init(struct video_source *s, struct events *events)

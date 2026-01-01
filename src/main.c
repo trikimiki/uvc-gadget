@@ -24,7 +24,12 @@
 #include "slideshow-source.h"
 
 #ifdef HAVE_LIBCAMERA
-/* Validation of given option against a list of allowed camera modes */
+
+// NOTE
+// IPA control modes and ranges are hardcoded here
+// theoretically, they should never get modified - still, the best practice is to populate those dynamically
+
+/* Validation of given option against a list of allowed algorithmic camera modes */
 static int is_camera_mode_valid(const char *mode, const char *valid_modes[])
 {
 	for (int i = 0; valid_modes[i] != NULL; i++) {
@@ -60,6 +65,12 @@ static const char *camera_valid_exposure_modes[] = {
 	"long",
 	NULL
 };
+static const float camera_valid_col_gain_range[2] = { 0.0f, 32.0f };
+static const float camera_valid_lens_pos_range[2] = { 0.0f, 32.0f };
+static const float camera_valid_brightness_range[2] = { -1.0f, 1.0f };
+static const float camera_valid_contrast_range[2] = { 0.0f, 32.0f };
+static const float camera_valid_saturation_range[2] = { 0.0f, 32.0f };
+static const float camera_valid_sharpness_range[2] = { 0.0f, 16.0f };
 #endif
 
 static void usage(const char *argv0)
@@ -76,15 +87,41 @@ static void usage(const char *argv0)
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_af_speed_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_af_speed_modes[i], camera_valid_af_speed_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --lens-position <value>    [libcamera] Static position of lens focus (reciprocal distance)\n");
+	fprintf(stderr, "                                           (this will disable AF algorithm and related controls)\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_lens_pos_range[0], camera_valid_lens_pos_range[1]);
+	fprintf(stderr, "                                    - 0.0 moves the lens to infinity\n");
+	fprintf(stderr, "                                    - 0.5 moves the lens to focus on objects 2m away\n");
+	fprintf(stderr, "                                    - 2.0 moves the lens to focus on objects 50cm away\n");
+	fprintf(stderr, "                                    - and larger values will focus the lens closer\n");
+														// TODO: write example of using "rpicam-hello" with continuous AF to determine optimal lens-position
 	fprintf(stderr, "    --awb <mode>               [libcamera] Auto White Balance (AWB) algorithm mode\n");
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_awb_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_awb_modes[i], camera_valid_awb_modes[i+1] ? ", " : "\n");
+	fprintf(stderr, "    --colour-gains <R>,<B>     [libcamera] White Balance red and blue gains\n");
+	fprintf(stderr, "                                           (this will disable AWB algorithm)\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f],[%.1f .. %.1f]\n", camera_valid_col_gain_range[0], camera_valid_col_gain_range[1],
+																								camera_valid_col_gain_range[0], camera_valid_col_gain_range[1]);
+	fprintf(stderr, "    --awbgains <R>,<B>         [libcamera] --colour-gains synonym\n");
 	fprintf(stderr, "    --exposure <mode>          [libcamera] AEGC algorithm exposure mode\n");
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_exposure_modes[i] != NULL; i++)
 		fprintf(stderr, "%s%s", camera_valid_exposure_modes[i], camera_valid_exposure_modes[i+1] ? ", " : "\n");
-	fprintf(stderr, "                                  (\"sport\" equals \"short\")");
+	fprintf(stderr, "                                    - \"sport\" equals \"short\"\n");
+	fprintf(stderr, "    --brightness <value>       [libcamera] Brightness adjustment\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_brightness_range[0], camera_valid_brightness_range[1]);
+	fprintf(stderr, "                                    - 0.0 = normal brightness\n");
+	fprintf(stderr, "    --contrast <value>         [libcamera] Contrast adjustment\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_contrast_range[0], camera_valid_contrast_range[1]);
+	fprintf(stderr, "                                    - 1.0 = normal contrast\n");
+	fprintf(stderr, "    --saturation <value>       [libcamera] Saturation adjustment\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_saturation_range[0], camera_valid_saturation_range[1]);
+	fprintf(stderr, "                                    - 1.0 = normal saturation\n");
+	fprintf(stderr, "                                    - 0.0 = greyscale\n");
+	fprintf(stderr, "    --sharpness <value>        [libcamera] Sharpness adjustment\n");
+	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_sharpness_range[0], camera_valid_sharpness_range[1]);
+	fprintf(stderr, "                                    - 1.0 = normal sharpening\n");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -130,6 +167,13 @@ int main(int argc, char *argv[])
 		.af_speed_mode = NULL,
 		.awb_mode = NULL,
 		.exposure_mode = NULL,
+		.colour_gain_r = 0.f / 0.f, //NaN
+		.colour_gain_b = 0.f / 0.f, //NaN
+		.lens_position = 0.f / 0.f, //NaN
+		.brightness = 0.f / 0.f, //NaN
+		.contrast = 0.f / 0.f, //NaN
+		.saturation = 0.f / 0.f, //NaN
+		.sharpness = 0.f / 0.f, //NaN
 	};
 #endif
 	char *cap_device = NULL;
@@ -146,15 +190,28 @@ int main(int argc, char *argv[])
 
 	#define OPT_AF_RANGE 1000
 	#define OPT_AF_SPEED 1001
-	#define OPT_AWB_MODE 1002
-	#define OPT_EXP_MODE 1003
+	#define OPT_LENS_POS 1002
+	#define OPT_AWB_MODE 1003
+	#define OPT_COL_GAIN 1004
+	#define OPT_EXP_MODE 1005
+	#define OPT_BRIGHTNS 1006
+	#define OPT_CONTRAST 1007
+	#define OPT_SATURATN 1008
+	#define OPT_SHRPNESS 1009
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
 		{ "camera",          required_argument, 0, 'c' },
 		{ "autofocus-range", required_argument, 0, OPT_AF_RANGE },
 		{ "autofocus-speed", required_argument, 0, OPT_AF_SPEED },
+		{ "lens-position",   required_argument, 0, OPT_LENS_POS },
 		{ "awb",             required_argument, 0, OPT_AWB_MODE },
+		{ "colour-gains",    required_argument, 0, OPT_COL_GAIN },
+		{ "awbgains",        required_argument, 0, OPT_COL_GAIN },
 		{ "exposure",        required_argument, 0, OPT_EXP_MODE },
+		{ "brightness",      required_argument, 0, OPT_BRIGHTNS },
+		{ "contrast",        required_argument, 0, OPT_CONTRAST },
+		{ "saturation",      required_argument, 0, OPT_SATURATN },
+		{ "sharpness",       required_argument, 0, OPT_SHRPNESS },
 #endif
 		{ "device",          required_argument, 0, 'd' },
 		{ "image",           required_argument, 0, 'i' },
@@ -185,6 +242,23 @@ int main(int argc, char *argv[])
 			}
 			camera_control_opts.af_speed_mode = optarg;
 			break;
+		case OPT_LENS_POS:
+		{
+			float value;
+			if (sscanf(optarg, "%f", &value) != 1) {
+				fprintf(stderr, "Invalid --lens-position value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (value < camera_valid_lens_pos_range[0] || value > camera_valid_lens_pos_range[1]) {
+				fprintf(stderr, "Invalid --lens-position value - out of range [%.1f .. %.1f]: %f\n",
+					camera_valid_lens_pos_range[0], camera_valid_lens_pos_range[1], value);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.lens_position = value;
+			break;
+		}
 		case OPT_AWB_MODE:
 			if (!is_camera_mode_valid(optarg, camera_valid_awb_modes)) {
 				fprintf(stderr, "Invalid --awb value: %s\n", optarg);
@@ -192,6 +266,24 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			camera_control_opts.awb_mode = optarg;
+			break;
+		case OPT_COL_GAIN:
+			float r_value, b_value;
+			if (sscanf(optarg, "%f,%f", &r_value, &b_value) != 2) {
+				fprintf(stderr, "Invalid --colour-gains value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (r_value < camera_valid_col_gain_range[0] || r_value > camera_valid_col_gain_range[1] ||
+				b_value < camera_valid_col_gain_range[0] || b_value > camera_valid_col_gain_range[1]) {
+				fprintf(stderr, "Invalid --colour-gains value - out of range [%.1f .. %.1f],[%.1f .. %.1f]: %s\n",
+					camera_valid_col_gain_range[0], camera_valid_col_gain_range[1],
+					camera_valid_col_gain_range[0], camera_valid_col_gain_range[1], optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.colour_gain_r = r_value;
+			camera_control_opts.colour_gain_b = b_value;
 			break;
 		case OPT_EXP_MODE:
 			if (!is_camera_mode_valid(optarg, camera_valid_exposure_modes)) {
@@ -201,6 +293,74 @@ int main(int argc, char *argv[])
 			}
 			camera_control_opts.exposure_mode = optarg;
 			break;
+		case OPT_BRIGHTNS:
+		{
+			float value;
+			if (sscanf(optarg, "%f", &value) != 1) {
+				fprintf(stderr, "Invalid --brightness value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (value < camera_valid_brightness_range[0] || value > camera_valid_brightness_range[1]) {
+				fprintf(stderr, "Invalid --brightness value - out of range [%.1f .. %.1f]: %f\n",
+					camera_valid_brightness_range[0], camera_valid_brightness_range[1], value);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.brightness = value;
+			break;
+		}
+		case OPT_CONTRAST:
+		{
+			float value;
+			if (sscanf(optarg, "%f", &value) != 1) {
+				fprintf(stderr, "Invalid --contrast value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (value < camera_valid_contrast_range[0] || value > camera_valid_contrast_range[1]) {
+				fprintf(stderr, "Invalid --contrast value - out of range [%.1f .. %.1f]: %f\n",
+					camera_valid_contrast_range[0], camera_valid_contrast_range[1], value);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.contrast = value;
+			break;
+		}
+		case OPT_SATURATN:
+		{
+			float value;
+			if (sscanf(optarg, "%f", &value) != 1) {
+				fprintf(stderr, "Invalid --saturation value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (value < camera_valid_saturation_range[0] || value > camera_valid_saturation_range[1]) {
+				fprintf(stderr, "Invalid --saturation value - out of range [%.1f .. %.1f]: %f\n",
+					camera_valid_saturation_range[0], camera_valid_saturation_range[1], value);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.saturation = value;
+			break;
+		}
+		case OPT_SHRPNESS:
+		{
+			float value;
+			if (sscanf(optarg, "%f", &value) != 1) {
+				fprintf(stderr, "Invalid --sharpness value - invalid format: %s\n", optarg);
+				usage(argv[0]);
+				return 1;
+			}
+			if (value < camera_valid_sharpness_range[0] || value > camera_valid_sharpness_range[1]) {
+				fprintf(stderr, "Invalid --sharpness value - out of range [%.1f .. %.1f]: %f\n",
+					camera_valid_sharpness_range[0], camera_valid_sharpness_range[1], value);
+				usage(argv[0]);
+				return 1;
+			}
+			camera_control_opts.sharpness = value;
+			break;
+		}
 #endif
 		case 'd':
 			cap_device = optarg;
