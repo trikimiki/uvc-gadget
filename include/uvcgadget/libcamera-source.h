@@ -14,8 +14,8 @@
 
 struct events;
 struct video_source;
-/* Container for libcamera control options */
-struct camera_controls {
+/* Container for libcamera options */
+struct camera_arguments {
 	char *af_range_mode;
 	char *af_speed_mode;
 	char *awb_mode;
@@ -31,6 +31,8 @@ struct camera_controls {
 	float contrast;
 	float saturation;
 	float sharpness;
+
+	int debug_report_enabled;
 };
 
 #ifdef __cplusplus
@@ -38,7 +40,7 @@ extern "C" {
 #endif
 
 struct video_source *libcamera_source_create(const char *devname);
-void libcamera_source_set_controls(struct video_source *src, struct camera_controls *input_controls);
+void libcamera_source_set_controls(struct video_source *src, struct camera_arguments *input_controls);
 void libcamera_source_init(struct video_source *src, struct events *events);
 
 #ifdef __cplusplus

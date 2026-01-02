@@ -94,7 +94,7 @@ static void usage(const char *argv0)
 	fprintf(stderr, "                                    - 0.5 moves the lens to focus on objects 2m away\n");
 	fprintf(stderr, "                                    - 2.0 moves the lens to focus on objects 50cm away\n");
 	fprintf(stderr, "                                    - and larger values will focus the lens closer\n");
-														// TODO: write example of using "rpicam-hello" with continuous AF to determine optimal lens-position
+	fprintf(stderr, "                                    - hint: you can use --camera-debug-report with AF to determine optimal static value\n");
 	fprintf(stderr, "    --awb <mode>               [libcamera] Auto White Balance (AWB) algorithm mode\n");
 	fprintf(stderr, "                                  values: ");
 	for (int i = 0; camera_valid_awb_modes[i] != NULL; i++)
@@ -103,6 +103,7 @@ static void usage(const char *argv0)
 	fprintf(stderr, "                                           (this will disable AWB algorithm)\n");
 	fprintf(stderr, "                                  range: [%.1f .. %.1f],[%.1f .. %.1f]\n", camera_valid_col_gain_range[0], camera_valid_col_gain_range[1],
 																								camera_valid_col_gain_range[0], camera_valid_col_gain_range[1]);
+	fprintf(stderr, "                                    - hint: you can use --camera-debug-report with AWB to determine baseline values\n");
 	fprintf(stderr, "    --awbgains <R>,<B>         [libcamera] --colour-gains synonym\n");
 	fprintf(stderr, "    --exposure <mode>          [libcamera] AEGC algorithm exposure mode\n");
 	fprintf(stderr, "                                  values: ");
@@ -122,6 +123,7 @@ static void usage(const char *argv0)
 	fprintf(stderr, "    --sharpness <value>        [libcamera] Sharpness adjustment\n");
 	fprintf(stderr, "                                  range: [%.1f .. %.1f]\n", camera_valid_sharpness_range[0], camera_valid_sharpness_range[1]);
 	fprintf(stderr, "                                    - 1.0 = normal sharpening\n");
+	fprintf(stderr, "    --camera-debug-report      [libcamera] Print lens position and colour gains every second\n");
 #endif
 	fprintf(stderr, " -d|--device <device>          V4L2 source device\n");
 	fprintf(stderr, " -i|--image <image>            MJPEG image\n");
@@ -162,7 +164,7 @@ int main(int argc, char *argv[])
 	char *function = NULL;
 #ifdef HAVE_LIBCAMERA
 	char *camera = NULL;
-	struct camera_controls camera_control_opts = {
+	struct camera_arguments camera_arguments_opts = {
 		.af_range_mode = NULL,
 		.af_speed_mode = NULL,
 		.awb_mode = NULL,
@@ -174,6 +176,7 @@ int main(int argc, char *argv[])
 		.contrast = 0.f / 0.f, //NaN
 		.saturation = 0.f / 0.f, //NaN
 		.sharpness = 0.f / 0.f, //NaN
+		.debug_report_enabled = 0,
 	};
 #endif
 	char *cap_device = NULL;
@@ -198,20 +201,22 @@ int main(int argc, char *argv[])
 	#define OPT_CONTRAST 1007
 	#define OPT_SATURATN 1008
 	#define OPT_SHRPNESS 1009
+	#define OPT_DBG_RPRT 1010
 	struct option long_options[] = {
 #ifdef HAVE_LIBCAMERA
-		{ "camera",          required_argument, 0, 'c' },
-		{ "autofocus-range", required_argument, 0, OPT_AF_RANGE },
-		{ "autofocus-speed", required_argument, 0, OPT_AF_SPEED },
-		{ "lens-position",   required_argument, 0, OPT_LENS_POS },
-		{ "awb",             required_argument, 0, OPT_AWB_MODE },
-		{ "colour-gains",    required_argument, 0, OPT_COL_GAIN },
-		{ "awbgains",        required_argument, 0, OPT_COL_GAIN },
-		{ "exposure",        required_argument, 0, OPT_EXP_MODE },
-		{ "brightness",      required_argument, 0, OPT_BRIGHTNS },
-		{ "contrast",        required_argument, 0, OPT_CONTRAST },
-		{ "saturation",      required_argument, 0, OPT_SATURATN },
-		{ "sharpness",       required_argument, 0, OPT_SHRPNESS },
+		{ "camera",              required_argument, 0, 'c' },
+		{ "autofocus-range",     required_argument, 0, OPT_AF_RANGE },
+		{ "autofocus-speed",     required_argument, 0, OPT_AF_SPEED },
+		{ "lens-position",       required_argument, 0, OPT_LENS_POS },
+		{ "awb",                 required_argument, 0, OPT_AWB_MODE },
+		{ "colour-gains",        required_argument, 0, OPT_COL_GAIN },
+		{ "awbgains",            required_argument, 0, OPT_COL_GAIN },
+		{ "exposure",            required_argument, 0, OPT_EXP_MODE },
+		{ "brightness",          required_argument, 0, OPT_BRIGHTNS },
+		{ "contrast",            required_argument, 0, OPT_CONTRAST },
+		{ "saturation",          required_argument, 0, OPT_SATURATN },
+		{ "sharpness",           required_argument, 0, OPT_SHRPNESS },
+		{ "camera-debug-report", no_argument,       0, OPT_DBG_RPRT },
 #endif
 		{ "device",          required_argument, 0, 'd' },
 		{ "image",           required_argument, 0, 'i' },
@@ -232,7 +237,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.af_range_mode = optarg;
+			camera_arguments_opts.af_range_mode = optarg;
 			break;
 		case OPT_AF_SPEED:
 			if (!is_camera_mode_valid(optarg, camera_valid_af_speed_modes)) {
@@ -240,7 +245,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.af_speed_mode = optarg;
+			camera_arguments_opts.af_speed_mode = optarg;
 			break;
 		case OPT_LENS_POS:
 		{
@@ -256,7 +261,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.lens_position = value;
+			camera_arguments_opts.lens_position = value;
 			break;
 		}
 		case OPT_AWB_MODE:
@@ -265,7 +270,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.awb_mode = optarg;
+			camera_arguments_opts.awb_mode = optarg;
 			break;
 		case OPT_COL_GAIN:
 			float r_value, b_value;
@@ -282,8 +287,8 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.colour_gain_r = r_value;
-			camera_control_opts.colour_gain_b = b_value;
+			camera_arguments_opts.colour_gain_r = r_value;
+			camera_arguments_opts.colour_gain_b = b_value;
 			break;
 		case OPT_EXP_MODE:
 			if (!is_camera_mode_valid(optarg, camera_valid_exposure_modes)) {
@@ -291,7 +296,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.exposure_mode = optarg;
+			camera_arguments_opts.exposure_mode = optarg;
 			break;
 		case OPT_BRIGHTNS:
 		{
@@ -307,7 +312,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.brightness = value;
+			camera_arguments_opts.brightness = value;
 			break;
 		}
 		case OPT_CONTRAST:
@@ -324,7 +329,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.contrast = value;
+			camera_arguments_opts.contrast = value;
 			break;
 		}
 		case OPT_SATURATN:
@@ -341,7 +346,7 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.saturation = value;
+			camera_arguments_opts.saturation = value;
 			break;
 		}
 		case OPT_SHRPNESS:
@@ -358,9 +363,12 @@ int main(int argc, char *argv[])
 				usage(argv[0]);
 				return 1;
 			}
-			camera_control_opts.sharpness = value;
+			camera_arguments_opts.sharpness = value;
 			break;
 		}
+		case OPT_DBG_RPRT:
+			camera_arguments_opts.debug_report_enabled = 1;
+			break;
 #endif
 		case 'd':
 			cap_device = optarg;
@@ -415,7 +423,7 @@ int main(int argc, char *argv[])
 #ifdef HAVE_LIBCAMERA
 	else if (camera) {
 		src = libcamera_source_create(camera);
-		libcamera_source_set_controls(src, &camera_control_opts);
+		libcamera_source_set_controls(src, &camera_arguments_opts);
 	}
 #endif
 	else if (img_path)
