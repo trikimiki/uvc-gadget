@@ -119,6 +119,26 @@ void uvc_close(struct uvc_device *dev)
 	free(dev);
 }
 
+/* Hardcode LED control via Rpi ACT*/
+
+static void led_disable_kernel_trigger(void)
+{
+    FILE *f = fopen("/sys/class/leds/ACT/trigger", "w");
+    if (f) {
+        fprintf(f, "none");
+        fclose(f);
+    }
+}
+
+static void led_set(int on)
+{
+    FILE *f = fopen("/sys/class/leds/ACT/brightness", "w");
+    if (f) {
+        fprintf(f, "%d", on ? 1 : 0);
+        fclose(f);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Request processing
  */
@@ -376,6 +396,7 @@ static void uvc_events_process(void *d)
 	switch (v4l2_event.type) {
 	case UVC_EVENT_CONNECT:
 	case UVC_EVENT_DISCONNECT:
+		led_set(0);
 		return;
 
 	case UVC_EVENT_SETUP:
@@ -387,10 +408,12 @@ static void uvc_events_process(void *d)
 		return;
 
 	case UVC_EVENT_STREAMON:
+		led_set(1);
 		uvc_stream_enable(dev->stream, 1);
 		return;
 
 	case UVC_EVENT_STREAMOFF:
+		led_set(0);
 		uvc_stream_enable(dev->stream, 0);
 		return;
 	}
@@ -427,6 +450,9 @@ void uvc_events_init(struct uvc_device *dev, struct events *events)
 
 	events_watch_fd(events, dev->vdev->fd, EVENT_EXCEPTION,
 			uvc_events_process, dev);
+
+	led_disable_kernel_trigger();
+	led_set(0);
 }
 
 void uvc_set_config(struct uvc_device *dev, struct uvc_function_config *fc)
